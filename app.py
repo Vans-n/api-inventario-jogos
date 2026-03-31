@@ -1,75 +1,69 @@
 # Importando o Flask
 from flask import Flask, jsonify, request
 
-# Importa o SQLite para usar banco de dados
-import sqlite3
-
-# cria a aplicação Flask
+# alteração / usando o Flask-SQLAlchemy no lugar do sqlite3
+from flask_sqlalchemy import SQLAlchemy
 app = Flask(__name__)
 
-BANCO = "inventario_jogos.db"
+# alterando a configuração da conexão com o banco SQLite usando SQLAlchemy
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///inventario_jogos.db"
+
+# Desativa aviso desnecessário do SQLAlchemy
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# ALTERAÇÃO: Criando o objeto db, que será responsável por gerenciar o banco
+db = SQLAlchemy(app)
 
 
-def executar_query(query, *args, fetch=False, commit=False):
-    conn = sqlite3.connect(BANCO)
+# ALTERAÇÃO: aqui cria uma classe modelo para representar a tabela jogos, em vez de escrever SQL diretamente nas rotas, usamos essa classe
+class Jogo(db.Model):
+    __tablename__ = "jogos"
 
-    conn.row_factory = sqlite3.Row
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    titulo = db.Column(db.String(200), nullable=False)
+    genero = db.Column(db.String(100), nullable=False)
+    plataforma = db.Column(db.String(100), nullable=False)
+    ano_lancamento = db.Column(db.Integer, nullable=False)
+    quantidade = db.Column(db.Integer, nullable=False)
 
-    cursor = conn.cursor()
+    # ALTERAÇÃO:Método auxiliar para transformar o objeto em dicionário JSON
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "titulo": self.titulo,
+            "genero": self.genero,
+            "plataforma": self.plataforma,
+            "ano_lancamento": self.ano_lancamento,
+            "quantidade": self.quantidade
+        }
 
-    resultado = None
-
-    try:
-        cursor.execute(query, args)
-
-        if commit:
-            conn.commit()
-
-        if fetch:
-            resultado = cursor.fetchall()
-
-    finally:
-        conn.close()
-
-    return resultado
-
-
-# Rota inicial (teste da API)
 @app.route("/")
 def inicio():
     return jsonify({"mensagem": "API de inventario de jogos funcionando!"}), 200
 
 
-# Rota GET para listar todos os jogos
-#GET: serve para "buscar" ou "pedir" dados
+# Rota GET para listar todos os jogos ou buscar por id
 @app.route("/jogos", methods=["GET"])
 @app.route("/jogos/<int:id>", methods=["GET"])
 def listar_ou_buscar_jogo(id=None):
 
+    # ALTERAÇÃO: Usando o model Jogo para buscar no banco
     if id is not None:
-        jogo = executar_query(
-            "SELECT * FROM jogos WHERE id = ?",
-            id,
-            fetch=True
-        )
+        jogo = Jogo.query.get(id)
 
         if jogo:
-            return jsonify(dict(jogo[0])), 200
+            return jsonify(jogo.to_dict()), 200
 
         return jsonify({"erro": "Jogo nao encontrado"}), 404
 
-    jogos = executar_query(
-        "SELECT * FROM jogos",
-        fetch=True
-    )
+    jogos = Jogo.query.all()
 
-    lista_jogos = [dict(jogo) for jogo in jogos]
+    lista_jogos = [jogo.to_dict() for jogo in jogos]
 
     return jsonify(lista_jogos), 200
 
 
 # Rota POST para cadastrar um novo jogo
-#POST: serve para "enviar" ou "criar" dados
 @app.route("/jogos", methods=["POST"])
 def criar_jogo():
 
@@ -84,24 +78,22 @@ def criar_jogo():
         if campo not in dados:
             return jsonify({"erro": f"Campo obrigatorio ausente: {campo}"}), 400
 
-    executar_query(
-        """
-        INSERT INTO jogos (titulo, genero, plataforma, ano_lancamento, quantidade)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        dados["titulo"],
-        dados["genero"],
-        dados["plataforma"],
-        dados["ano_lancamento"],
-        dados["quantidade"],
-        commit=True
+    # ALTERAÇÃO: criando um objeto da classe Jogo em vez de usar INSERT SQL
+    novo_jogo = Jogo(
+        titulo=dados["titulo"],
+        genero=dados["genero"],
+        plataforma=dados["plataforma"],
+        ano_lancamento=dados["ano_lancamento"],
+        quantidade=dados["quantidade"]
     )
+
+    # ALTERAÇÃO:Adiciona e salva no banco usando SQLAlchemy
+    db.session.add(novo_jogo)
+    db.session.commit()
 
     return jsonify({"mensagem": "Jogo cadastrado com sucesso!"}), 201
 
 
-# Rota PUT para atualizar um jogo existente
-# atualizar ou criar recursos em um servidor, enviando dados para uma URL específica
 @app.route("/jogos/<int:id>", methods=["PUT"])
 def atualizar_jogo(id):
 
@@ -110,11 +102,8 @@ def atualizar_jogo(id):
     if not dados:
         return jsonify({"erro": "JSON invalido ou nao enviado"}), 400
 
-    jogo = executar_query(
-        "SELECT * FROM jogos WHERE id = ?",
-        id,
-        fetch=True
-    )
+    # ALTERAÇÃO: Busca o jogo pelo id usando SQLAlchemy
+    jogo = Jogo.query.get(id)
 
     if not jogo:
         return jsonify({"erro": "Jogo nao encontrado"}), 404
@@ -125,43 +114,32 @@ def atualizar_jogo(id):
         if campo not in dados:
             return jsonify({"erro": f"Campo obrigatorio ausente: {campo}"}), 400
 
-    executar_query(
-        """
-        UPDATE jogos
-        SET titulo = ?, genero = ?, plataforma = ?, ano_lancamento = ?, quantidade = ?
-        WHERE id = ?
-        """,
-        dados["titulo"],
-        dados["genero"],
-        dados["plataforma"],
-        dados["ano_lancamento"],
-        dados["quantidade"],
-        id,
-        commit=True
-    )
+    # ALTERAÇÃO: Atualizando os atributos do objeto
+    jogo.titulo = dados["titulo"]
+    jogo.genero = dados["genero"]
+    jogo.plataforma = dados["plataforma"]
+    jogo.ano_lancamento = dados["ano_lancamento"]
+    jogo.quantidade = dados["quantidade"]
+
+    # ALTERAÇÃO: Salva as alterações no banco
+    db.session.commit()
 
     return "", 204
 
 
 # Rota DELETE para remover um jogo
-#DELETE para realizar a exclusão de dados de uma ou mais tabelas de um banco de dados.
 @app.route("/jogos/<int:id>", methods=["DELETE"])
 def deletar_jogo(id):
 
-    jogo = executar_query(
-        "SELECT * FROM jogos WHERE id = ?",
-        id,
-        fetch=True
-    )
+    # ALTERAÇÃO:Busca o jogo pelo id usando SQLAlchemy
+    jogo = Jogo.query.get(id)
 
     if not jogo:
-        return jsonify({"erro": "Jogo não encontrado"}), 404
+        return jsonify({"erro": "Jogo nao encontrado"}), 404
 
-    executar_query(
-        "DELETE FROM jogos WHERE id = ?",
-        id,
-        commit=True
-    )
+    # ALTERAÇÃO: Remove o objeto e salva a alteração no banco
+    db.session.delete(jogo)
+    db.session.commit()
 
     return "", 204
 
