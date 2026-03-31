@@ -1,38 +1,44 @@
-# Importando a biblioteca SQLite
-import sqlite3
+# Importando a aplicação e o banco do app
+from app import app, db, Jogo
 
 
-# Criando o banco e a tabela
+# Função para criar o banco e inserir jogos iniciais
 def criar_banco():
+    with app.app_context():
+        # ALTERAÇÃO: Agora cria as tabelas com SQLAlchemy
+        db.create_all()
 
-    conn = sqlite3.connect("inventario_jogos.db")
+        # ALTERAÇÃO: Verifica se já existem jogos cadastrados antes de inserir
+        if Jogo.query.count() == 0:
+            jogos = [
+                Jogo(
+                    titulo="Harry Potter: Hogwarts Legacy",
+                    genero="Ação/RPG",
+                    plataforma="PC",
+                    ano_lancamento=2023,
+                    quantidade=6
+                ),
+                Jogo(
+                    titulo="The Sims 4",
+                    genero="Simulação",
+                    plataforma="PC",
+                    ano_lancamento=2014,
+                    quantidade=7
+                ),
+                Jogo(
+                    titulo="Super Mario Odyssey",
+                    genero="Aventura",
+                    plataforma="Nintendo Switch",
+                    ano_lancamento=2017,
+                    quantidade=4
+                )
+            ]
 
-    cursor = conn.cursor()
+            # ALTERAÇÃO:  Inseri os jogos usando db.session
+            db.session.add_all(jogos)
+            db.session.commit()
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS jogos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,  
-            titulo TEXT NOT NULL,                  
-            genero TEXT NOT NULL,                 
-            plataforma TEXT NOT NULL,              
-            ano_lancamento INTEGER NOT NULL,       
-            quantidade INTEGER NOT NULL            
-        )
-    """)
-
-    cursor.execute("""
-    INSERT INTO jogos (titulo, genero, plataforma, ano_lancamento, quantidade)
-    VALUES
-    ('Harry Potter: Hogwarts Legacy', 'Ação/RPG', 'PC', 2023, 6),
-    ('The Sims 4', 'Simulação', 'PC', 2014, 7),
-    ('Super Mario Odyssey', 'Aventura', 'Nintendo Switch', 2017, 4)
-    """)
-
-    conn.commit()
-
-    conn.close()
-
-    print("Banco de dados, tabela e jogos inseridos com sucesso!")
+        print("Banco de dados, tabela e jogos inseridos com sucesso!")
 
 
 if __name__ == "__main__":
